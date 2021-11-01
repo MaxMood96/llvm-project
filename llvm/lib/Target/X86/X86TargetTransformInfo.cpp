@@ -236,11 +236,19 @@ InstructionCost X86TTIImpl::getArithmeticInstrCost(
     }
   }
 
-  if ((ISD == ISD::SDIV || ISD == ISD::SREM || ISD == ISD::UDIV ||
-       ISD == ISD::UREM) &&
+  if ((ISD == ISD::MUL || ISD == ISD::SDIV || ISD == ISD::SREM ||
+       ISD == ISD::UDIV || ISD == ISD::UREM) &&
       (Op2Info == TargetTransformInfo::OK_UniformConstantValue ||
        Op2Info == TargetTransformInfo::OK_NonUniformConstantValue) &&
       Opd2PropInfo == TargetTransformInfo::OP_PowerOf2) {
+    // Vector multiply by pow2 will be simplified to shifts.
+    if (ISD == ISD::MUL) {
+      InstructionCost Cost = getArithmeticInstrCost(
+          Instruction::Shl, Ty, CostKind, Op1Info, Op2Info,
+          TargetTransformInfo::OP_None, TargetTransformInfo::OP_None);
+      return Cost;
+    }
+
     if (ISD == ISD::SDIV || ISD == ISD::SREM) {
       // On X86, vector signed division by constants power-of-two are
       // normally expanded to the sequence SRA + SRL + ADD + SRA.
@@ -314,7 +322,7 @@ InstructionCost X86TTIImpl::getArithmeticInstrCost(
     { ISD::SUB,   MVT::v2i64, 4  },
   };
 
-  if (ST->isSLM()) {
+  if (ST->useSLMArithCosts()) {
     if (Args.size() == 2 && ISD == ISD::MUL && LT.second == MVT::v4i32) {
       // Check if the operands can be shrinked into a smaller datatype.
       // TODO: Merge this into generiic vXi32 MUL patterns above.
@@ -2572,7 +2580,7 @@ InstructionCost X86TTIImpl::getCmpSelInstrCost(unsigned Opcode, Type *ValTy,
     { ISD::SELECT,  MVT::v4f32,   3 }, // andps + andnps + orps
   };
 
-  if (ST->isSLM())
+  if (ST->useSLMArithCosts())
     if (const auto *Entry = CostTableLookup(SLMCostTbl, ISD, MTy))
       return LT.first * (ExtraCost + Entry->Cost);
 
@@ -2698,8 +2706,8 @@ X86TTIImpl::getTypeBasedIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
   static const CostTblEntry AVX512CostTbl[] = {
     { ISD::ABS,        MVT::v8i64,   1 },
     { ISD::ABS,        MVT::v16i32,  1 },
-    { ISD::ABS,        MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::ABS,        MVT::v64i8,   2 }, // FIXME: include split
+    { ISD::ABS,        MVT::v32i16,  2 },
+    { ISD::ABS,        MVT::v64i8,   2 },
     { ISD::ABS,        MVT::v4i64,   1 },
     { ISD::ABS,        MVT::v2i64,   1 },
     { ISD::BITREVERSE, MVT::v8i64,  36 },
@@ -2723,26 +2731,26 @@ X86TTIImpl::getTypeBasedIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
     { ISD::CTTZ,       MVT::v64i8,  18 },
     { ISD::SMAX,       MVT::v8i64,   1 },
     { ISD::SMAX,       MVT::v16i32,  1 },
-    { ISD::SMAX,       MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::SMAX,       MVT::v64i8,   2 }, // FIXME: include split
+    { ISD::SMAX,       MVT::v32i16,  2 },
+    { ISD::SMAX,       MVT::v64i8,   2 },
     { ISD::SMAX,       MVT::v4i64,   1 },
     { ISD::SMAX,       MVT::v2i64,   1 },
     { ISD::SMIN,       MVT::v8i64,   1 },
     { ISD::SMIN,       MVT::v16i32,  1 },
-    { ISD::SMIN,       MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::SMIN,       MVT::v64i8,   2 }, // FIXME: include split
+    { ISD::SMIN,       MVT::v32i16,  2 },
+    { ISD::SMIN,       MVT::v64i8,   2 },
     { ISD::SMIN,       MVT::v4i64,   1 },
     { ISD::SMIN,       MVT::v2i64,   1 },
     { ISD::UMAX,       MVT::v8i64,   1 },
     { ISD::UMAX,       MVT::v16i32,  1 },
-    { ISD::UMAX,       MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::UMAX,       MVT::v64i8,   2 }, // FIXME: include split
+    { ISD::UMAX,       MVT::v32i16,  2 },
+    { ISD::UMAX,       MVT::v64i8,   2 },
     { ISD::UMAX,       MVT::v4i64,   1 },
     { ISD::UMAX,       MVT::v2i64,   1 },
     { ISD::UMIN,       MVT::v8i64,   1 },
     { ISD::UMIN,       MVT::v16i32,  1 },
-    { ISD::UMIN,       MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::UMIN,       MVT::v64i8,   2 }, // FIXME: include split
+    { ISD::UMIN,       MVT::v32i16,  2 },
+    { ISD::UMIN,       MVT::v64i8,   2 },
     { ISD::UMIN,       MVT::v4i64,   1 },
     { ISD::UMIN,       MVT::v2i64,   1 },
     { ISD::USUBSAT,    MVT::v16i32,  2 }, // pmaxud + psubd
@@ -2753,14 +2761,14 @@ X86TTIImpl::getTypeBasedIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
     { ISD::UADDSAT,    MVT::v2i64,   3 }, // not + pminuq + paddq
     { ISD::UADDSAT,    MVT::v4i64,   3 }, // not + pminuq + paddq
     { ISD::UADDSAT,    MVT::v8i64,   3 }, // not + pminuq + paddq
-    { ISD::SADDSAT,    MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::SADDSAT,    MVT::v64i8,   2 }, // FIXME: include split
-    { ISD::SSUBSAT,    MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::SSUBSAT,    MVT::v64i8,   2 }, // FIXME: include split
-    { ISD::UADDSAT,    MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::UADDSAT,    MVT::v64i8,   2 }, // FIXME: include split
-    { ISD::USUBSAT,    MVT::v32i16,  2 }, // FIXME: include split
-    { ISD::USUBSAT,    MVT::v64i8,   2 }, // FIXME: include split
+    { ISD::SADDSAT,    MVT::v32i16,  2 },
+    { ISD::SADDSAT,    MVT::v64i8,   2 },
+    { ISD::SSUBSAT,    MVT::v32i16,  2 },
+    { ISD::SSUBSAT,    MVT::v64i8,   2 },
+    { ISD::UADDSAT,    MVT::v32i16,  2 },
+    { ISD::UADDSAT,    MVT::v64i8,   2 },
+    { ISD::USUBSAT,    MVT::v32i16,  2 },
+    { ISD::USUBSAT,    MVT::v64i8,   2 },
     { ISD::FMAXNUM,    MVT::f32,     2 },
     { ISD::FMAXNUM,    MVT::v4f32,   2 },
     { ISD::FMAXNUM,    MVT::v8f32,   2 },
@@ -3195,7 +3203,7 @@ X86TTIImpl::getTypeBasedIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
       if (const auto *Entry = CostTableLookup(GLMCostTbl, ISD, MTy))
         return adjustTableCost(*Entry, LT.first, ICA.getFlags());
 
-    if (ST->isSLM())
+    if (ST->useSLMArithCosts())
       if (const auto *Entry = CostTableLookup(SLMCostTbl, ISD, MTy))
         return adjustTableCost(*Entry, LT.first, ICA.getFlags());
 
@@ -3288,8 +3296,6 @@ X86TTIImpl::getTypeBasedIntrinsicInstrCost(const IntrinsicCostAttributes &ICA,
         }
       }
     }
-
-    // TODO - add BMI (TZCNT) scalar handling
 
     if (ST->is64Bit())
       if (const auto *Entry = CostTableLookup(X64CostTbl, ISD, MTy))
@@ -3488,7 +3494,7 @@ InstructionCost X86TTIImpl::getVectorInstrCost(unsigned Opcode, Type *Val,
     int ISD = TLI->InstructionOpcodeToISD(Opcode);
     assert(ISD && "Unexpected vector opcode");
     MVT MScalarTy = LT.second.getScalarType();
-    if (ST->isSLM())
+    if (ST->useSLMArithCosts())
       if (auto *Entry = CostTableLookup(SLMCostTbl, ISD, MScalarTy))
         return Entry->Cost + RegisterFileMoveCost;
 
@@ -3905,7 +3911,7 @@ X86TTIImpl::getArithmeticReductionCost(unsigned Opcode, VectorType *ValTy,
   EVT VT = TLI->getValueType(DL, ValTy);
   if (VT.isSimple()) {
     MVT MTy = VT.getSimpleVT();
-    if (ST->isSLM())
+    if (ST->useSLMArithCosts())
       if (const auto *Entry = CostTableLookup(SLMCostTblNoPairWise, ISD, MTy))
         return Entry->Cost;
 
@@ -3944,7 +3950,7 @@ X86TTIImpl::getArithmeticReductionCost(unsigned Opcode, VectorType *ValTy,
     ArithmeticCost *= LT.first - 1;
   }
 
-  if (ST->isSLM())
+  if (ST->useSLMArithCosts())
     if (const auto *Entry = CostTableLookup(SLMCostTblNoPairWise, ISD, MTy))
       return ArithmeticCost + Entry->Cost;
 
@@ -5197,6 +5203,7 @@ InstructionCost X86TTIImpl::getInterleavedMemoryOpCost(
         Type::getIntNTy(ScalarTy->getContext(), DL.getTypeSizeInBits(ScalarTy));
 
   // Get the cost of all the memory operations.
+  // FIXME: discount dead loads.
   InstructionCost MemOpCosts = getMemoryOpCost(
       Opcode, VecTy, MaybeAlign(Alignment), AddressSpace, CostKind);
 
@@ -5416,22 +5423,27 @@ InstructionCost X86TTIImpl::getInterleavedMemoryOpCost(
   };
 
   if (Opcode == Instruction::Load) {
-    // FIXME: if we have a partially-interleaved groups, with gaps,
-    //        should we discount the not-demanded indicies?
+    auto GetDiscountedCost = [Factor, NumMembers = Indices.size(),
+                              MemOpCosts](const CostTblEntry *Entry) {
+      // NOTE: this is just an approximation!
+      //       It can over/under -estimate the cost!
+      return MemOpCosts + divideCeil(NumMembers * Entry->Cost, Factor);
+    };
+
     if (ST->hasAVX2())
       if (const auto *Entry = CostTableLookup(AVX2InterleavedLoadTbl, Factor,
                                               ETy.getSimpleVT()))
-        return MemOpCosts + Entry->Cost;
+        return GetDiscountedCost(Entry);
 
     if (ST->hasSSSE3())
       if (const auto *Entry = CostTableLookup(SSSE3InterleavedLoadTbl, Factor,
                                               ETy.getSimpleVT()))
-        return MemOpCosts + Entry->Cost;
+        return GetDiscountedCost(Entry);
 
     if (ST->hasSSE2())
       if (const auto *Entry = CostTableLookup(SSE2InterleavedLoadTbl, Factor,
                                               ETy.getSimpleVT()))
-        return MemOpCosts + Entry->Cost;
+        return GetDiscountedCost(Entry);
   } else {
     assert(Opcode == Instruction::Store &&
            "Expected Store Instruction at this point");
