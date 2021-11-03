@@ -1176,20 +1176,20 @@ static void addSanitizers(const Triple &TargetTriple,
 
     auto ASanPass = [&](SanitizerMask Mask, bool CompileKernel) {
       if (LangOpts.Sanitize.has(Mask)) {
-        bool Recover = CodeGenOpts.SanitizeRecover.has(Mask);
-        bool UseAfterScope = CodeGenOpts.SanitizeAddressUseAfterScope;
-        bool ModuleUseAfterScope = asanUseGlobalsGC(TargetTriple, CodeGenOpts);
+        bool UseGlobalGC = asanUseGlobalsGC(TargetTriple, CodeGenOpts);
         bool UseOdrIndicator = CodeGenOpts.SanitizeAddressUseOdrIndicator;
         llvm::AsanDtorKind DestructorKind =
             CodeGenOpts.getSanitizeAddressDtor();
-        llvm::AsanDetectStackUseAfterReturnMode UseAfterReturn =
-            CodeGenOpts.getSanitizeAddressUseAfterReturn();
+        AddressSanitizerOptions Opts;
+        Opts.CompileKernel = CompileKernel;
+        Opts.Recover = CodeGenOpts.SanitizeRecover.has(Mask);
+        Opts.UseAfterScope = CodeGenOpts.SanitizeAddressUseAfterScope;
+        Opts.UseAfterReturn = CodeGenOpts.getSanitizeAddressUseAfterReturn();
         MPM.addPass(RequireAnalysisPass<ASanGlobalsMetadataAnalysis, Module>());
         MPM.addPass(ModuleAddressSanitizerPass(
-            CompileKernel, Recover, ModuleUseAfterScope, UseOdrIndicator,
-            DestructorKind));
-        MPM.addPass(createModuleToFunctionPassAdaptor(AddressSanitizerPass(
-            {CompileKernel, Recover, UseAfterScope, UseAfterReturn})));
+            Opts, UseGlobalGC, UseOdrIndicator, DestructorKind));
+        MPM.addPass(
+            createModuleToFunctionPassAdaptor(AddressSanitizerPass(Opts)));
       }
     };
     ASanPass(SanitizerKind::Address, false);
@@ -1561,7 +1561,7 @@ static void runThinLTOBackend(
     return;
 
   auto AddStream = [&](size_t Task) {
-    return std::make_unique<lto::NativeObjectStream>(std::move(OS));
+    return std::make_unique<NativeObjectStream>(std::move(OS));
   };
   lto::Config Conf;
   if (CGOpts.SaveTempsFilePrefix != "") {
@@ -1657,16 +1657,17 @@ void clang::EmitBackendOutput(DiagnosticsEngine &Diags,
     // If we are performing a ThinLTO importing compile, load the function index
     // into memory and pass it into runThinLTOBackend, which will run the
     // function importer and invoke LTO passes.
-    Expected<std::unique_ptr<ModuleSummaryIndex>> IndexOrErr =
-        llvm::getModuleSummaryIndexForFile(CGOpts.ThinLTOIndexFile,
-                                           /*IgnoreEmptyThinLTOIndexFile*/true);
-    if (!IndexOrErr) {
-      logAllUnhandledErrors(IndexOrErr.takeError(), errs(),
+    std::unique_ptr<ModuleSummaryIndex> CombinedIndex;
+    if (Error E = llvm::getModuleSummaryIndexForFile(
+                      CGOpts.ThinLTOIndexFile,
+                      /*IgnoreEmptyThinLTOIndexFile*/ true)
+                      .moveInto(CombinedIndex)) {
+      logAllUnhandledErrors(std::move(E), errs(),
                             "Error loading index file '" +
                             CGOpts.ThinLTOIndexFile + "': ");
       return;
     }
-    std::unique_ptr<ModuleSummaryIndex> CombinedIndex = std::move(*IndexOrErr);
+
     // A null CombinedIndex means we should skip ThinLTO compilation
     // (LLVM will optionally ignore empty index files, returning null instead
     // of an error).

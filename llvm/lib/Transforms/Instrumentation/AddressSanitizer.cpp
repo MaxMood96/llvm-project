@@ -1288,23 +1288,23 @@ void ModuleAddressSanitizerPass::printPipeline(
   static_cast<PassInfoMixin<ModuleAddressSanitizerPass> *>(this)->printPipeline(
       OS, MapClassName2PassName);
   OS << "<";
-  if (CompileKernel)
+  if (Options.CompileKernel)
     OS << "kernel";
   OS << ">";
 }
 
 ModuleAddressSanitizerPass::ModuleAddressSanitizerPass(
-    bool CompileKernel, bool Recover, bool UseGlobalGC, bool UseOdrIndicator,
-    AsanDtorKind DestructorKind)
-    : CompileKernel(CompileKernel), Recover(Recover), UseGlobalGC(UseGlobalGC),
+    const AddressSanitizerOptions &Options, bool UseGlobalGC,
+    bool UseOdrIndicator, AsanDtorKind DestructorKind)
+    : Options(Options), UseGlobalGC(UseGlobalGC),
       UseOdrIndicator(UseOdrIndicator), DestructorKind(DestructorKind) {}
 
 PreservedAnalyses ModuleAddressSanitizerPass::run(Module &M,
                                                   AnalysisManager<Module> &AM) {
   GlobalsMetadata &GlobalsMD = AM.getResult<ASanGlobalsMetadataAnalysis>(M);
-  ModuleAddressSanitizer Sanitizer(M, &GlobalsMD, CompileKernel, Recover,
-                                   UseGlobalGC, UseOdrIndicator,
-                                   DestructorKind);
+  ModuleAddressSanitizer Sanitizer(M, &GlobalsMD, Options.CompileKernel,
+                                   Options.Recover, UseGlobalGC,
+                                   UseOdrIndicator, DestructorKind);
   if (Sanitizer.instrumentModule(M))
     return PreservedAnalyses::none();
   return PreservedAnalyses::all();
@@ -2003,7 +2003,8 @@ bool ModuleAddressSanitizer::shouldInstrumentGlobal(GlobalVariable *G) const {
     // Globals from llvm.metadata aren't emitted, do not instrument them.
     if (Section == "llvm.metadata") return false;
     // Do not instrument globals from special LLVM sections.
-    if (Section.find("__llvm") != StringRef::npos || Section.find("__LLVM") != StringRef::npos) return false;
+    if (Section.contains("__llvm") || Section.contains("__LLVM"))
+      return false;
 
     // Do not instrument function pointers to initialization and termination
     // routines: dynamic linker will not properly handle redzones.
