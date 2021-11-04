@@ -430,8 +430,8 @@ TEST(HasTypeLoc, MatchesClassTemplateSpecializationDecl) {
 
 TEST(HasTypeLoc, MatchesCompoundLiteralExpr) {
   EXPECT_TRUE(
-      matches("int* x = (int [2]) { 0, 1 };",
-              compoundLiteralExpr(hasTypeLoc(loc(asString("int [2]"))))));
+      matches("int* x = (int[2]) { 0, 1 };",
+              compoundLiteralExpr(hasTypeLoc(loc(asString("int[2]"))))));
 }
 
 TEST(HasTypeLoc, MatchesDeclaratorDecl) {
@@ -623,7 +623,6 @@ TEST(Matcher, MatchesCoroutine) {
   FileContentMappings M;
   M.push_back(std::make_pair("/coro_header", R"cpp(
 namespace std {
-namespace experimental {
 
 template <class... Args>
 struct void_t_imp {
@@ -642,7 +641,7 @@ struct traits_sfinae_base<T, void_t<typename T::promise_type>> {
 
 template <class Ret, class... Args>
 struct coroutine_traits : public traits_sfinae_base<Ret> {};
-}}  // namespace std::experimental
+}  // namespace std
 struct awaitable {
   bool await_ready() noexcept;
   template <typename F>
@@ -658,14 +657,13 @@ struct promise {
   void unhandled_exception();
 };
 template <typename... T>
-struct std::experimental::coroutine_traits<void, T...> { using promise_type = promise; };
+struct std::coroutine_traits<void, T...> { using promise_type = promise; };
 namespace std {
-namespace experimental {
 template <class PromiseType = void>
 struct coroutine_handle {
   static coroutine_handle from_address(void *) noexcept;
 };
-}} // namespace std::experimental
+} // namespace std
 )cpp"));
   StringRef CoReturnCode = R"cpp(
 #include <coro_header>

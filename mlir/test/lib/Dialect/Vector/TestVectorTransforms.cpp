@@ -14,13 +14,13 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/Dialect/Vector/VectorOps.h"
 #include "mlir/Dialect/Vector/VectorTransforms.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace mlir;
 using namespace mlir::vector;
+
 namespace {
 
 struct TestVectorToVectorConversion
@@ -116,6 +116,10 @@ struct TestVectorContractionConversion
       *this, "vector-flat-transpose",
       llvm::cl::desc("Lower 2-D vector.transpose to vector.flat_transpose"),
       llvm::cl::init(false)};
+  Option<bool> lowerToShuffleTranspose{
+      *this, "vector-shuffle-transpose",
+      llvm::cl::desc("Lower 2-D vector.transpose to shape_cast + shuffle"),
+      llvm::cl::init(false)};
   Option<bool> lowerToOuterProduct{
       *this, "vector-outerproduct",
       llvm::cl::desc("Lower vector.contract to vector.outerproduct"),
@@ -159,15 +163,21 @@ struct TestVectorContractionConversion
     VectorContractLowering contractLowering = VectorContractLowering::Dot;
     if (lowerToFlatMatrix)
       contractLowering = VectorContractLowering::Matmul;
+    VectorMultiReductionLowering vectorMultiReductionLowering =
+        VectorMultiReductionLowering::InnerParallel;
     VectorTransposeLowering transposeLowering =
         VectorTransposeLowering::EltWise;
     if (lowerToFlatTranspose)
       transposeLowering = VectorTransposeLowering::Flat;
-    VectorTransformsOptions options{contractLowering, transposeLowering};
+    if (lowerToShuffleTranspose)
+      transposeLowering = VectorTransposeLowering::Shuffle;
+    VectorTransformsOptions options{
+        contractLowering, vectorMultiReductionLowering, transposeLowering};
     populateVectorBroadcastLoweringPatterns(patterns);
     populateVectorContractLoweringPatterns(patterns, options);
     populateVectorMaskOpLoweringPatterns(patterns);
-    populateVectorShapeCastLoweringPatterns(patterns);
+    if (!lowerToShuffleTranspose)
+      populateVectorShapeCastLoweringPatterns(patterns);
     populateVectorTransposeLoweringPatterns(patterns, options);
     (void)applyPatternsAndFoldGreedily(getFunction(), std::move(patterns));
   }
@@ -461,7 +471,54 @@ struct TestVectorMultiReductionLoweringPatterns
       llvm::cl::init(false)};
   void runOnFunction() override {
     RewritePatternSet patterns(&getContext());
-    populateVectorMultiReductionLoweringPatterns(patterns, !useOuterReductions);
+    populateVectorMultiReductionLoweringPatterns(
+        patterns, useOuterReductions
+                      ? vector::VectorMultiReductionLowering::InnerParallel
+                      : vector::VectorMultiReductionLowering::InnerReduction);
+    (void)applyPatternsAndFoldGreedily(getFunction(), std::move(patterns));
+  }
+};
+
+struct TestVectorTransferCollapseInnerMostContiguousDims
+    : public PassWrapper<TestVectorTransferCollapseInnerMostContiguousDims,
+                         FunctionPass> {
+  TestVectorTransferCollapseInnerMostContiguousDims() = default;
+  TestVectorTransferCollapseInnerMostContiguousDims(
+      const TestVectorTransferCollapseInnerMostContiguousDims &pass) {}
+
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<memref::MemRefDialect, AffineDialect>();
+  }
+
+  StringRef getArgument() const final {
+    return "test-vector-transfer-collapse-inner-most-dims";
+  }
+
+  StringRef getDescription() const final {
+    return "Test conversion patterns that reducedes the rank of the vector "
+           "transfer memory and vector operands.";
+  }
+
+  void runOnFunction() override {
+    RewritePatternSet patterns(&getContext());
+    populateVectorTransferCollapseInnerMostContiguousDimsPatterns(patterns);
+    (void)applyPatternsAndFoldGreedily(getFunction(), std::move(patterns));
+  }
+};
+
+struct TestVectorReduceToContractPatternsPatterns
+    : public PassWrapper<TestVectorReduceToContractPatternsPatterns,
+                         FunctionPass> {
+  StringRef getArgument() const final {
+    return "test-vector-reduction-to-contract-patterns";
+  }
+  StringRef getDescription() const final {
+    return "Test patterns to convert multireduce op to contract and combine "
+           "broadcast/transpose to contract";
+  }
+  void runOnFunction() override {
+    RewritePatternSet patterns(&getContext());
+    populateVectorReductionToContractPatterns(patterns);
     (void)applyPatternsAndFoldGreedily(getFunction(), std::move(patterns));
   }
 };
@@ -490,6 +547,10 @@ void registerTestVectorConversions() {
   PassRegistration<TestVectorTransferLoweringPatterns>();
 
   PassRegistration<TestVectorMultiReductionLoweringPatterns>();
+
+  PassRegistration<TestVectorTransferCollapseInnerMostContiguousDims>();
+
+  PassRegistration<TestVectorReduceToContractPatternsPatterns>();
 }
 } // namespace test
 } // namespace mlir

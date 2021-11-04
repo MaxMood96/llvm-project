@@ -247,6 +247,7 @@ PrintingPolicy CGDebugInfo::getPrintingPolicy() const {
   PP.SuppressInlineNamespace = false;
   PP.PrintCanonicalTypes = true;
   PP.UsePreferredNames = false;
+  PP.UseIntegerTypeSuffixesAlways = true;
 
   // Apply -fdebug-prefix-map.
   PP.Callbacks = &PrintCB;
@@ -1276,9 +1277,11 @@ llvm::DIType *CGDebugInfo::CreateType(const TypedefType *Ty,
 
   uint32_t Align = getDeclAlignIfRequired(Ty->getDecl(), CGM.getContext());
   // Typedefs are derived from some other type.
+  llvm::DINodeArray Annotations = CollectBTFDeclTagAnnotations(Ty->getDecl());
   return DBuilder.createTypedef(Underlying, Ty->getDecl()->getName(),
                                 getOrCreateFile(Loc), getLineNumber(Loc),
-                                getDeclContextDescriptor(Ty->getDecl()), Align);
+                                getDeclContextDescriptor(Ty->getDecl()), Align,
+                                Annotations);
 }
 
 static unsigned getDwarfCC(CallingConv CC) {

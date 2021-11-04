@@ -1288,26 +1288,34 @@ void ModuleAddressSanitizerPass::printPipeline(
   static_cast<PassInfoMixin<ModuleAddressSanitizerPass> *>(this)->printPipeline(
       OS, MapClassName2PassName);
   OS << "<";
-  if (CompileKernel)
+  if (Options.CompileKernel)
     OS << "kernel";
   OS << ">";
 }
 
 ModuleAddressSanitizerPass::ModuleAddressSanitizerPass(
-    bool CompileKernel, bool Recover, bool UseGlobalGC, bool UseOdrIndicator,
-    AsanDtorKind DestructorKind)
-    : CompileKernel(CompileKernel), Recover(Recover), UseGlobalGC(UseGlobalGC),
+    const AddressSanitizerOptions &Options, bool UseGlobalGC,
+    bool UseOdrIndicator, AsanDtorKind DestructorKind)
+    : Options(Options), UseGlobalGC(UseGlobalGC),
       UseOdrIndicator(UseOdrIndicator), DestructorKind(DestructorKind) {}
 
 PreservedAnalyses ModuleAddressSanitizerPass::run(Module &M,
-                                                  AnalysisManager<Module> &AM) {
-  GlobalsMetadata &GlobalsMD = AM.getResult<ASanGlobalsMetadataAnalysis>(M);
-  ModuleAddressSanitizer Sanitizer(M, &GlobalsMD, CompileKernel, Recover,
-                                   UseGlobalGC, UseOdrIndicator,
-                                   DestructorKind);
-  if (Sanitizer.instrumentModule(M))
-    return PreservedAnalyses::none();
-  return PreservedAnalyses::all();
+                                                  ModuleAnalysisManager &MAM) {
+  GlobalsMetadata &GlobalsMD = MAM.getResult<ASanGlobalsMetadataAnalysis>(M);
+  ModuleAddressSanitizer ModuleSanitizer(M, &GlobalsMD, Options.CompileKernel,
+                                         Options.Recover, UseGlobalGC,
+                                         UseOdrIndicator, DestructorKind);
+  bool Modified = false;
+  auto &FAM = MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+  for (Function &F : M) {
+    AddressSanitizer FunctionSanitizer(M, &GlobalsMD, Options.CompileKernel,
+                                       Options.Recover, Options.UseAfterScope,
+                                       Options.UseAfterReturn);
+    const TargetLibraryInfo &TLI = FAM.getResult<TargetLibraryAnalysis>(F);
+    Modified |= FunctionSanitizer.instrumentFunction(F, &TLI);
+  }
+  Modified |= ModuleSanitizer.instrumentModule(M);
+  return Modified ? PreservedAnalyses::none() : PreservedAnalyses::all();
 }
 
 INITIALIZE_PASS(ASanGlobalsMetadataWrapperPass, "asan-globals-md",
@@ -2003,7 +2011,8 @@ bool ModuleAddressSanitizer::shouldInstrumentGlobal(GlobalVariable *G) const {
     // Globals from llvm.metadata aren't emitted, do not instrument them.
     if (Section == "llvm.metadata") return false;
     // Do not instrument globals from special LLVM sections.
-    if (Section.find("__llvm") != StringRef::npos || Section.find("__LLVM") != StringRef::npos) return false;
+    if (Section.contains("__llvm") || Section.contains("__LLVM"))
+      return false;
 
     // Do not instrument function pointers to initialization and termination
     // routines: dynamic linker will not properly handle redzones.
@@ -2840,6 +2849,8 @@ bool AddressSanitizer::suppressInstrumentationSiteForDebug(int &Instrumented) {
 
 bool AddressSanitizer::instrumentFunction(Function &F,
                                           const TargetLibraryInfo *TLI) {
+  if (F.empty())
+    return false;
   if (F.getLinkage() == GlobalValue::AvailableExternallyLinkage) return false;
   if (!ClDebugFunc.empty() && ClDebugFunc == F.getName()) return false;
   if (F.getName().startswith("__asan_")) return false;
