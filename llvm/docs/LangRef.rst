@@ -2648,7 +2648,7 @@ default set of specifications which are then (possibly) overridden by
 the specifications in the ``datalayout`` keyword. The default
 specifications are given in this list:
 
--  ``E`` - big endian
+-  ``e`` - little endian
 -  ``p:64:64:64`` - 64-bit pointers with 64-bit alignment.
 -  ``p[n]:64:64:64`` - Other address spaces are assumed to be the
    same as the default address space.
@@ -19558,7 +19558,7 @@ This is an overloaded intrinsic.
 ::
 
       declare <2 x double> @llvm.experimental.vp.splice.v2f64(<2 x double> %vec1, <2 x double> %vec2, i32 %imm, <2 x i1> %mask, i32 %evl1, i32 %evl2)
-      declare <vscale x 4 x i32> @llvm.experimental.vp.splice.nxv4i32(<vscale x 4 x i32> %vec1, <vscale x 4 x i32> %vec2, i32 %imm, <2 x i1> %mask i32 %evl1, i32 %evl2)
+      declare <vscale x 4 x i32> @llvm.experimental.vp.splice.nxv4i32(<vscale x 4 x i32> %vec1, <vscale x 4 x i32> %vec2, i32 %imm, <vscale x 4 x i1> %mask, i32 %evl1, i32 %evl2)
 
 Overview:
 """""""""
