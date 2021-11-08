@@ -828,6 +828,7 @@ static void PropagateCallSiteMetadata(CallBase &CB, Function::iterator FStart,
   }
 }
 
+namespace {
 /// Utility for cloning !noalias and !alias.scope metadata. When a code region
 /// using scoped alias metadata is inlined, the aliasing relationships may not
 /// hold between the two version. It is necessary to create a deep clone of the
@@ -849,6 +850,7 @@ public:
   /// metadata.
   void remap(Function::iterator FStart, Function::iterator FEnd);
 };
+} // namespace
 
 ScopedAliasMetadataDeepCloner::ScopedAliasMetadataDeepCloner(
     const Function *F) {
@@ -2298,8 +2300,8 @@ llvm::InlineResult llvm::InlineFunction(CallBase &CB, InlineFunctionInfo &IFI,
          BB != E; ++BB) {
       // Add bundle operands to any top-level call sites.
       SmallVector<OperandBundleDef, 1> OpBundles;
-      for (BasicBlock::iterator BBI = BB->begin(), E = BB->end(); BBI != E;) {
-        CallBase *I = dyn_cast<CallBase>(&*BBI++);
+      for (Instruction &II : llvm::make_early_inc_range(*BB)) {
+        CallBase *I = dyn_cast<CallBase>(&II);
         if (!I)
           continue;
 
