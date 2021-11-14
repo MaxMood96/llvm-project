@@ -9,6 +9,7 @@
 #ifndef MLIR_IR_BUILTINTYPES_H
 #define MLIR_IR_BUILTINTYPES_H
 
+#include "BuiltinAttributeInterfaces.h"
 #include "SubElementInterfaces.h"
 
 namespace llvm {
@@ -19,10 +20,13 @@ namespace mlir {
 class AffineExpr;
 class AffineMap;
 class FloatType;
-class Identifier;
 class IndexType;
 class IntegerType;
+class StringAttr;
 class TypeRange;
+
+// TODO: Remove this when all usages have been replaced with StringAttr.
+using Identifier = StringAttr;
 
 //===----------------------------------------------------------------------===//
 // FloatType
@@ -198,23 +202,23 @@ public:
 #include "mlir/IR/BuiltinTypeInterfaces.h.inc"
 
 namespace mlir {
+
 //===----------------------------------------------------------------------===//
 // MemRefType
 //===----------------------------------------------------------------------===//
 
 /// This is a builder type that keeps local references to arguments. Arguments
-/// that are passed into the builder must out-live the builder.
+/// that are passed into the builder must outlive the builder.
 class MemRefType::Builder {
 public:
   // Build from another MemRefType.
   explicit Builder(MemRefType other)
       : shape(other.getShape()), elementType(other.getElementType()),
-        affineMaps(other.getAffineMaps()), memorySpace(other.getMemorySpace()) {
-  }
+        layout(other.getLayout()), memorySpace(other.getMemorySpace()) {}
 
   // Build from scratch.
   Builder(ArrayRef<int64_t> shape, Type elementType)
-      : shape(shape), elementType(elementType), affineMaps() {}
+      : shape(shape), elementType(elementType) {}
 
   Builder &setShape(ArrayRef<int64_t> newShape) {
     shape = newShape;
@@ -226,8 +230,8 @@ public:
     return *this;
   }
 
-  Builder &setAffineMaps(ArrayRef<AffineMap> newAffineMaps) {
-    affineMaps = newAffineMaps;
+  Builder &setLayout(MemRefLayoutAttrInterface newLayout) {
+    layout = newLayout;
     return *this;
   }
 
@@ -240,14 +244,63 @@ public:
   Builder &setMemorySpace(unsigned newMemorySpace);
 
   operator MemRefType() {
-    return MemRefType::get(shape, elementType, affineMaps, memorySpace);
+    return MemRefType::get(shape, elementType, layout, memorySpace);
   }
 
 private:
   ArrayRef<int64_t> shape;
   Type elementType;
-  ArrayRef<AffineMap> affineMaps;
+  MemRefLayoutAttrInterface layout;
   Attribute memorySpace;
+};
+
+//===----------------------------------------------------------------------===//
+// RankedTensorType
+//===----------------------------------------------------------------------===//
+
+/// This is a builder type that keeps local references to arguments. Arguments
+/// that are passed into the builder must outlive the builder.
+class RankedTensorType::Builder {
+public:
+  /// Build from another RankedTensorType.
+  explicit Builder(RankedTensorType other)
+      : shape(other.getShape()), elementType(other.getElementType()),
+        encoding(other.getEncoding()) {}
+
+  /// Build from scratch.
+  Builder(ArrayRef<int64_t> shape, Type elementType, Attribute encoding)
+      : shape(shape), elementType(elementType), encoding(encoding) {}
+
+  Builder &setShape(ArrayRef<int64_t> newShape) {
+    shape = newShape;
+    return *this;
+  }
+
+  Builder &setElementType(Type newElementType) {
+    elementType = newElementType;
+    return *this;
+  }
+
+  Builder &setEncoding(Attribute newEncoding) {
+    encoding = newEncoding;
+    return *this;
+  }
+
+  /// Create a new RankedTensorType by erasing a dim from shape.
+  RankedTensorType dropDim(unsigned dim) {
+    SmallVector<int64_t, 4> newShape(shape.begin(), shape.end());
+    newShape.erase(newShape.begin() + dim);
+    return setShape(newShape);
+  }
+
+  operator RankedTensorType() {
+    return RankedTensorType::get(shape, elementType, encoding);
+  }
+
+private:
+  ArrayRef<int64_t> shape;
+  Type elementType;
+  Attribute encoding;
 };
 
 /// Given an `originalShape` and a `reducedShape` assumed to be a subset of

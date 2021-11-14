@@ -411,7 +411,6 @@ void CallEvent::dump(raw_ostream &Out) const {
   ASTContext &Ctx = getState()->getStateManager().getContext();
   if (const Expr *E = getOriginExpr()) {
     E->printPretty(Out, nullptr, Ctx.getPrintingPolicy());
-    Out << "\n";
     return;
   }
 
@@ -425,9 +424,7 @@ void CallEvent::dump(raw_ostream &Out) const {
 }
 
 bool CallEvent::isCallStmt(const Stmt *S) {
-  return isa<CallExpr>(S) || isa<ObjCMessageExpr>(S)
-                          || isa<CXXConstructExpr>(S)
-                          || isa<CXXNewExpr>(S);
+  return isa<CallExpr, ObjCMessageExpr, CXXConstructExpr, CXXNewExpr>(S);
 }
 
 QualType CallEvent::getDeclaredResultType(const Decl *D) {
@@ -681,7 +678,7 @@ bool AnyFunctionCall::argumentsMayEscape() const {
 
   // - NSXXInsertXX, for example NSMapInsertIfAbsent, since they can
   //   be deallocated by NSMapRemove.
-  if (FName.startswith("NS") && (FName.find("Insert") != StringRef::npos))
+  if (FName.startswith("NS") && FName.contains("Insert"))
     return true;
 
   // - Many CF containers allow objects to escape through custom
