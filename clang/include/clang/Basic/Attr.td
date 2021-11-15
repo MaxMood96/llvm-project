@@ -1839,8 +1839,16 @@ def BPFPreserveAccessIndex : InheritableAttr,
 def BTFDeclTag : InheritableAttr {
   let Spellings = [Clang<"btf_decl_tag">];
   let Args = [StringArgument<"BTFDeclTag">];
-  let Subjects = SubjectList<[Var, Function, Record, Field], ErrorDiag>;
+  let Subjects = SubjectList<[Var, Function, Record, Field, TypedefName],
+                             ErrorDiag>;
   let Documentation = [BTFDeclTagDocs];
+  let LangOpts = [COnly];
+}
+
+def BTFTypeTag : TypeAttr {
+  let Spellings = [Clang<"btf_type_tag">];
+  let Args = [StringArgument<"BTFTypeTag">];
+  let Documentation = [BTFTypeTagDocs];
   let LangOpts = [COnly];
 }
 
@@ -3675,7 +3683,8 @@ def OMPAllocateDecl : InheritableAttr {
                    "OMPCGroupMemAlloc", "OMPPTeamMemAlloc", "OMPThreadMemAlloc",
                    "OMPUserDefinedMemAlloc"
                  ]>,
-    ExprArgument<"Allocator">
+    ExprArgument<"Allocator">,
+    ExprArgument<"Alignment">
   ];
   let Documentation = [Undocumented];
 }
@@ -3691,7 +3700,10 @@ def OMPDeclareVariant : InheritableAttr {
     ExprArgument<"VariantFuncRef">,
     OMPTraitInfoArgument<"TraitInfos">,
     VariadicExprArgument<"AdjustArgsNothing">,
-    VariadicExprArgument<"AdjustArgsNeedDevicePtr">
+    VariadicExprArgument<"AdjustArgsNeedDevicePtr">,
+    VariadicEnumArgument<"AppendArgs", "InteropType",
+                     ["target", "targetsync", "target,targetsync"],
+                     ["Target", "TargetSync", "Target_TargetSync"]>
   ];
   let AdditionalMembers = [{
     OMPTraitInfo &getTraitInfo() { return *traitInfos; }

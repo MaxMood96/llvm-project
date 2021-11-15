@@ -162,9 +162,6 @@ class GdbRemoteTestCaseBase(Base):
         self._verbose_log_handler = None
         TestBase.tearDown(self)
 
-    def build(self, *args, **kwargs):
-        self.buildDefault(*args, **kwargs)
-
     def getLocalServerLogFile(self):
         return self.getLogBasenameForCurrentTest() + "-server.log"
 
@@ -861,6 +858,7 @@ class GdbRemoteTestCaseBase(Base):
         "vfork-events",
         "memory-tagging",
         "qSaveCore",
+        "native-signals",
     ]
 
     def parse_qSupported_response(self, context):
