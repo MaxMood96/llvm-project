@@ -62,8 +62,8 @@ class GdbRemoteTestCaseFactory(type):
 @add_metaclass(GdbRemoteTestCaseFactory)
 class GdbRemoteTestCaseBase(Base):
 
-    # Default time out in seconds. The timeout is increased tenfold under Asan.
-    DEFAULT_TIMEOUT =  20 * (10 if ('ASAN_OPTIONS' in os.environ) else 1)
+    # Default time out in seconds. The timeout is increased fivefold under Asan.
+    DEFAULT_TIMEOUT =  60 * (5 if ('ASAN_OPTIONS' in os.environ) else 1)
     # Default sleep time in seconds. The sleep time is doubled under Asan.
     DEFAULT_SLEEP   =  5  * (2  if ('ASAN_OPTIONS' in os.environ) else 1)
 
@@ -161,9 +161,6 @@ class GdbRemoteTestCaseBase(Base):
         self.logger.removeHandler(self._verbose_log_handler)
         self._verbose_log_handler = None
         TestBase.tearDown(self)
-
-    def build(self, *args, **kwargs):
-        self.buildDefault(*args, **kwargs)
 
     def getLocalServerLogFile(self):
         return self.getLogBasenameForCurrentTest() + "-server.log"
@@ -794,7 +791,7 @@ class GdbRemoteTestCaseBase(Base):
 
             if time.time() > timeout_time:
                 raise Exception(
-                    'timed out after {} seconds while waiting for theads: waiting for at least {} threads, found {}'.format(
+                    'timed out after {} seconds while waiting for threads: waiting for at least {} threads, found {}'.format(
                         self.DEFAULT_TIMEOUT, thread_count, actual_thread_count))
 
         return threads
@@ -861,6 +858,7 @@ class GdbRemoteTestCaseBase(Base):
         "vfork-events",
         "memory-tagging",
         "qSaveCore",
+        "native-signals",
     ]
 
     def parse_qSupported_response(self, context):
