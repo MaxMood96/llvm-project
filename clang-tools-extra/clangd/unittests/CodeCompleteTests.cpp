@@ -1662,6 +1662,9 @@ TEST(CompletionTest, OverloadBundling) {
       // Overload with bool
       int a(bool);
       int b(float);
+
+      X(int);
+      X(float);
     };
     int GFuncC(int);
     int GFuncD(int);
@@ -1670,6 +1673,10 @@ TEST(CompletionTest, OverloadBundling) {
   // Member completions are bundled.
   EXPECT_THAT(completions(Context + "int y = X().^", {}, Opts).Completions,
               UnorderedElementsAre(Labeled("a(…)"), Labeled("b(float)")));
+
+  // Constructor completions are bundled.
+  EXPECT_THAT(completions(Context + "X z = X^", {}, Opts).Completions,
+              UnorderedElementsAre(Labeled("X"), Labeled("X(…)")));
 
   // Non-member completions are bundled, including index+sema.
   Symbol NoArgsGFunc = func("GFuncC");
@@ -1886,6 +1893,11 @@ TEST(CompletionTest, Render) {
   R = C.render(Opts);
   EXPECT_EQ(R.insertText, "Foo::x(${0:bool})");
   EXPECT_EQ(R.insertTextFormat, InsertTextFormat::Snippet);
+
+  C.SnippetSuffix = "";
+  R = C.render(Opts);
+  EXPECT_EQ(R.insertText, "Foo::x");
+  EXPECT_EQ(R.insertTextFormat, InsertTextFormat::PlainText);
 
   Include.Insertion.emplace();
   R = C.render(Opts);
@@ -2317,6 +2329,15 @@ TEST(CompletionTest, CompletionFunctionArgsDisabled) {
         Results.Completions,
         UnorderedElementsAre(AllOf(Named("foo_class"), SnippetSuffix("<$0>")),
                              AllOf(Named("foo_alias"), SnippetSuffix("<$0>"))));
+  }
+  {
+    auto Results = completions(
+        R"cpp(
+      #define FOO(x, y) x##f
+      FO^ )cpp",
+        {}, Opts);
+    EXPECT_THAT(Results.Completions, UnorderedElementsAre(AllOf(
+                                         Named("FOO"), SnippetSuffix("($0)"))));
   }
 }
 
@@ -3029,7 +3050,7 @@ TEST(CompletionTest, CompletionRange) {
 
   // Sema doesn't trigger at all here, while the no-sema completion runs
   // heuristics as normal and reports a range. It'd be nice to be consistent.
-  const char *NoCompletion = "/* [[]]^ */";
+  const char *NoCompletion = "/* foo [[]]^ */";
   Completions = completions(NoCompletion);
   EXPECT_EQ(Completions.CompletionRange, llvm::None);
   Completions = completionsNoCompile(NoCompletion);
@@ -3165,6 +3186,7 @@ TEST(CompletionTest, FunctionArgsExist) {
   clangd::CodeCompleteOptions Opts;
   Opts.EnableSnippets = true;
   std::string Context = R"cpp(
+    #define MACRO(x)
     int foo(int A);
     int bar();
     struct Object {
@@ -3212,6 +3234,9 @@ TEST(CompletionTest, FunctionArgsExist) {
       Contains(AllOf(Labeled("Container<typename T>(int Size)"),
                      SnippetSuffix(""),
                      Kind(CompletionItemKind::Constructor))));
+  EXPECT_THAT(completions(Context + "MAC^(2)", {}, Opts).Completions,
+              Contains(AllOf(Labeled("MACRO(x)"), SnippetSuffix(""),
+                             Kind(CompletionItemKind::Text))));
 }
 
 TEST(CompletionTest, NoCrashDueToMacroOrdering) {
@@ -3277,6 +3302,35 @@ TEST(CompletionTest, PreambleCodeComplete) {
   auto Result = codeComplete(testPath(ModifiedTU.Filename), Test.point(),
                              BaselineTU.preamble().get(), Inputs, {});
   EXPECT_THAT(Result.Completions, Not(testing::IsEmpty()));
+}
+
+TEST(CompletionTest, CommentParamName) {
+  clangd::CodeCompleteOptions Opts;
+  const std::string Code = R"cpp(
+    void fun(int foo, int bar);
+    void overloaded(int param_int);
+    void overloaded(int param_int, int param_other);
+    void overloaded(char param_char);
+    int main() {
+  )cpp";
+
+  EXPECT_THAT(completions(Code + "fun(/*^", {}, Opts).Completions,
+              UnorderedElementsAre(Labeled("foo=")));
+  EXPECT_THAT(completions(Code + "fun(1, /*^", {}, Opts).Completions,
+              UnorderedElementsAre(Labeled("bar=")));
+  EXPECT_THAT(completions(Code + "/*^", {}, Opts).Completions, IsEmpty());
+  // Test de-duplication.
+  EXPECT_THAT(
+      completions(Code + "overloaded(/*^", {}, Opts).Completions,
+      UnorderedElementsAre(Labeled("param_int="), Labeled("param_char=")));
+  // Comment already has some text in it.
+  EXPECT_THAT(completions(Code + "fun(/*  ^", {}, Opts).Completions,
+              UnorderedElementsAre(Labeled("foo=")));
+  EXPECT_THAT(completions(Code + "fun(/* f^", {}, Opts).Completions,
+              UnorderedElementsAre(Labeled("foo=")));
+  EXPECT_THAT(completions(Code + "fun(/* x^", {}, Opts).Completions, IsEmpty());
+  EXPECT_THAT(completions(Code + "fun(/* f ^", {}, Opts).Completions,
+              IsEmpty());
 }
 
 } // namespace
