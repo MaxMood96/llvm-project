@@ -2219,13 +2219,8 @@ void X86FrameLowering::emitEpilogue(MachineFunction &MF,
   }
 
   // Emit tilerelease for AMX kernel.
-  const MachineRegisterInfo &MRI = MF.getRegInfo();
-  const TargetRegisterClass *RC = TRI->getRegClass(X86::TILERegClassID);
-  for (unsigned I = 0; I < RC->getNumRegs(); I++)
-    if (!MRI.reg_nodbg_empty(X86::TMM0 + I)) {
-      BuildMI(MBB, Terminator, DL, TII.get(X86::TILERELEASE));
-      break;
-    }
+  if (X86FI->hasVirtualTileReg())
+    BuildMI(MBB, Terminator, DL, TII.get(X86::TILERELEASE));
 }
 
 StackOffset X86FrameLowering::getFrameIndexReference(const MachineFunction &MF,
@@ -3104,8 +3099,7 @@ void X86FrameLowering::adjustForHiPEPrologue(
         // having a ".", such as a simple <Module>.<Function>.<Arity>, or an
         // "_", such as the BIF "suspend_0") as they are executed on another
         // stack.
-        if (F->getName().find("erlang.") != StringRef::npos ||
-            F->getName().find("bif_") != StringRef::npos ||
+        if (F->getName().contains("erlang.") || F->getName().contains("bif_") ||
             F->getName().find_first_of("._") == StringRef::npos)
           continue;
 
