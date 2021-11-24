@@ -158,6 +158,15 @@ void CombinerHelper::replaceRegOpWith(MachineRegisterInfo &MRI,
   Observer.changedInstr(*FromRegOp.getParent());
 }
 
+void CombinerHelper::replaceOpcodeWith(MachineInstr &FromMI,
+                                       unsigned ToOpcode) const {
+  Observer.changingInstr(FromMI);
+
+  FromMI.setDesc(Builder.getTII().get(ToOpcode));
+
+  Observer.changedInstr(FromMI);
+}
+
 const RegisterBank *CombinerHelper::getRegBank(Register Reg) const {
   return RBI->getRegBank(Reg, MRI, *TRI);
 }
@@ -3816,8 +3825,7 @@ bool CombinerHelper::matchExtractAllEltsFromBuildVector(
   unsigned NumElts = DstTy.getNumElements();
 
   SmallBitVector ExtractedElts(NumElts);
-  for (auto &II : make_range(MRI.use_instr_nodbg_begin(DstReg),
-                             MRI.use_instr_nodbg_end())) {
+  for (MachineInstr &II : MRI.use_nodbg_instructions(DstReg)) {
     if (II.getOpcode() != TargetOpcode::G_EXTRACT_VECTOR_ELT)
       return false;
     auto Cst = getIConstantVRegVal(II.getOperand(2).getReg(), MRI);
@@ -4006,6 +4014,36 @@ bool CombinerHelper::matchICmpToLHSKnownBits(
   if (!isLegalOrBeforeLegalizer({Op, {DstTy, LHSTy}}))
     return false;
   MatchInfo = [=](MachineIRBuilder &B) { B.buildInstr(Op, {Dst}, {LHS}); };
+  return true;
+}
+
+// Replace (and (or x, c1), c2) with (and x, c2) iff c1 & c2 == 0
+bool CombinerHelper::matchAndOrDisjointMask(
+    MachineInstr &MI, std::function<void(MachineIRBuilder &)> &MatchInfo) {
+  assert(MI.getOpcode() == TargetOpcode::G_AND);
+
+  // Ignore vector types to simplify matching the two constants.
+  // TODO: do this for vectors and scalars via a demanded bits analysis.
+  LLT Ty = MRI.getType(MI.getOperand(0).getReg());
+  if (Ty.isVector())
+    return false;
+
+  Register Src;
+  int64_t MaskAnd;
+  int64_t MaskOr;
+  if (!mi_match(MI, MRI,
+                m_GAnd(m_GOr(m_Reg(Src), m_ICst(MaskOr)), m_ICst(MaskAnd))))
+    return false;
+
+  // Check if MaskOr could turn on any bits in Src.
+  if (MaskAnd & MaskOr)
+    return false;
+
+  MatchInfo = [=, &MI](MachineIRBuilder &B) {
+    Observer.changingInstr(MI);
+    MI.getOperand(1).setReg(Src);
+    Observer.changedInstr(MI);
+  };
   return true;
 }
 
