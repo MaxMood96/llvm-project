@@ -136,6 +136,10 @@ public:
   void replaceRegOpWith(MachineRegisterInfo &MRI, MachineOperand &FromRegOp,
                         Register ToReg) const;
 
+  /// Replace the opcode in instruction with a new opcode and inform the
+  /// observer of the changes.
+  void replaceOpcodeWith(MachineInstr &FromMI, unsigned ToOpcode) const;
+
   /// Get the register bank of \p Reg.
   /// If Reg has not been assigned a register, a register class,
   /// or a register bank, then this returns nullptr.
@@ -560,6 +564,7 @@ public:
   /// This variant does not erase \p MI after calling the build function.
   void applyBuildFnNoErase(MachineInstr &MI, BuildFnTy &MatchInfo);
 
+  bool matchOrShiftToFunnelShift(MachineInstr &MI, BuildFnTy &MatchInfo);
   bool matchFunnelShiftToRotate(MachineInstr &MI);
   void applyFunnelShiftToRotate(MachineInstr &MI);
   bool matchRotateOutOfRange(MachineInstr &MI);
@@ -574,6 +579,9 @@ public:
   bool
   matchICmpToLHSKnownBits(MachineInstr &MI,
                           BuildFnTy &MatchInfo);
+
+  /// \returns true if (and (or x, c1), c2) can be replaced with (and x, c2)
+  bool matchAndOrDisjointMask(MachineInstr &MI, BuildFnTy &MatchInfo);
 
   bool matchBitfieldExtractFromSExtInReg(MachineInstr &MI,
                                          BuildFnTy &MatchInfo);
