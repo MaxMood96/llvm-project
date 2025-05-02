@@ -7236,7 +7236,8 @@ Sema::BuildCompoundLiteralExpr(SourceLocation LParenLoc, TypeSourceInfo *TInfo,
     // to destruct.
     if (E->getType().hasNonTrivialToPrimitiveDestructCUnion())
       checkNonTrivialCUnion(E->getType(), E->getExprLoc(),
-                            NTCUC_CompoundLiteral, NTCUK_Destruct);
+                            NonTrivialCUnionContext::CompoundLiteral,
+                            NTCUK_Destruct);
 
     // Diagnose jumps that enter or exit the lifetime of the compound literal.
     if (literalType.isDestructedType()) {
@@ -15041,7 +15042,7 @@ ExprResult Sema::CreateBuiltinBinOp(SourceLocation OpLoc,
 
       if (LHS.get()->getType().hasNonTrivialToPrimitiveCopyCUnion())
         checkNonTrivialCUnion(LHS.get()->getType(), LHS.get()->getExprLoc(),
-                              NTCUC_Assignment, NTCUK_Copy);
+                              NonTrivialCUnionContext::Assignment, NTCUK_Copy);
     }
     RecordModifiableNonNullParam(*this, LHS.get());
     break;
@@ -16531,8 +16532,9 @@ ExprResult Sema::ActOnBlockStmtExpr(SourceLocation CaretLoc,
 
   if (RetTy.hasNonTrivialToPrimitiveDestructCUnion() ||
       RetTy.hasNonTrivialToPrimitiveCopyCUnion())
-    checkNonTrivialCUnion(RetTy, BD->getCaretLocation(), NTCUC_FunctionReturn,
-                          NTCUK_Destruct|NTCUK_Copy);
+    checkNonTrivialCUnion(RetTy, BD->getCaretLocation(),
+                          NonTrivialCUnionContext::FunctionReturn,
+                          NTCUK_Destruct | NTCUK_Copy);
 
   PopDeclContext();
 
@@ -18537,7 +18539,7 @@ MarkVarDeclODRUsed(ValueDecl *V, SourceLocation Loc, Sema &SemaRef,
   QualType CaptureType, DeclRefType;
   if (SemaRef.LangOpts.OpenMP)
     SemaRef.OpenMP().tryCaptureOpenMPLambdas(V);
-  SemaRef.tryCaptureVariable(V, Loc, Sema::TryCapture_Implicit,
+  SemaRef.tryCaptureVariable(V, Loc, TryCaptureKind::Implicit,
                              /*EllipsisLoc*/ SourceLocation(),
                              /*BuildAndDiagnose*/ true, CaptureType,
                              DeclRefType, FunctionScopeIndexToStopAt);
@@ -18842,12 +18844,12 @@ static bool captureInBlock(BlockScopeInfo *BSI, ValueDecl *Var,
 static bool captureInCapturedRegion(
     CapturedRegionScopeInfo *RSI, ValueDecl *Var, SourceLocation Loc,
     const bool BuildAndDiagnose, QualType &CaptureType, QualType &DeclRefType,
-    const bool RefersToCapturedVariable, Sema::TryCaptureKind Kind,
-    bool IsTopScope, Sema &S, bool Invalid) {
+    const bool RefersToCapturedVariable, TryCaptureKind Kind, bool IsTopScope,
+    Sema &S, bool Invalid) {
   // By default, capture variables by reference.
   bool ByRef = true;
-  if (IsTopScope && Kind != Sema::TryCapture_Implicit) {
-    ByRef = (Kind == Sema::TryCapture_ExplicitByRef);
+  if (IsTopScope && Kind != TryCaptureKind::Implicit) {
+    ByRef = (Kind == TryCaptureKind::ExplicitByRef);
   } else if (S.getLangOpts().OpenMP && RSI->CapRegionKind == CR_OpenMP) {
     // Using an LValue reference type is consistent with Lambdas (see below).
     if (S.OpenMP().isOpenMPCapturedDecl(Var)) {
@@ -18883,13 +18885,13 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
                             SourceLocation Loc, const bool BuildAndDiagnose,
                             QualType &CaptureType, QualType &DeclRefType,
                             const bool RefersToCapturedVariable,
-                            const Sema::TryCaptureKind Kind,
+                            const TryCaptureKind Kind,
                             SourceLocation EllipsisLoc, const bool IsTopScope,
                             Sema &S, bool Invalid) {
   // Determine whether we are capturing by reference or by value.
   bool ByRef = false;
-  if (IsTopScope && Kind != Sema::TryCapture_Implicit) {
-    ByRef = (Kind == Sema::TryCapture_ExplicitByRef);
+  if (IsTopScope && Kind != TryCaptureKind::Implicit) {
+    ByRef = (Kind == TryCaptureKind::ExplicitByRef);
   } else {
     ByRef = (LSI->ImpCaptureStyle == LambdaScopeInfo::ImpCap_LambdaByref);
   }
@@ -19167,7 +19169,7 @@ bool Sema::tryCaptureVariable(
   CaptureType = Var->getType();
   DeclRefType = CaptureType.getNonReferenceType();
   bool Nested = false;
-  bool Explicit = (Kind != TryCapture_Implicit);
+  bool Explicit = (Kind != TryCaptureKind::Implicit);
   unsigned FunctionScopesIndex = MaxFunctionScopesIndex;
   do {
 
@@ -19409,9 +19411,9 @@ bool Sema::tryCaptureVariable(ValueDecl *Var, SourceLocation Loc,
 bool Sema::NeedToCaptureVariable(ValueDecl *Var, SourceLocation Loc) {
   QualType CaptureType;
   QualType DeclRefType;
-  return !tryCaptureVariable(Var, Loc, TryCapture_Implicit, SourceLocation(),
-                             /*BuildAndDiagnose=*/false, CaptureType,
-                             DeclRefType, nullptr);
+  return !tryCaptureVariable(
+      Var, Loc, TryCaptureKind::Implicit, SourceLocation(),
+      /*BuildAndDiagnose=*/false, CaptureType, DeclRefType, nullptr);
 }
 
 QualType Sema::getCapturedDeclRefType(ValueDecl *Var, SourceLocation Loc) {
@@ -19421,9 +19423,9 @@ QualType Sema::getCapturedDeclRefType(ValueDecl *Var, SourceLocation Loc) {
   QualType DeclRefType;
 
   // Determine whether we can capture this variable.
-  if (tryCaptureVariable(Var, Loc, TryCapture_Implicit, SourceLocation(),
-                         /*BuildAndDiagnose=*/false, CaptureType,
-                         DeclRefType, nullptr))
+  if (tryCaptureVariable(Var, Loc, TryCaptureKind::Implicit, SourceLocation(),
+                         /*BuildAndDiagnose=*/false, CaptureType, DeclRefType,
+                         nullptr))
     return QualType();
 
   return DeclRefType;
@@ -19807,8 +19809,8 @@ ExprResult Sema::CheckLValueToRValueConversionOperand(Expr *E) {
       (E->getType().hasNonTrivialToPrimitiveDestructCUnion() ||
        E->getType().hasNonTrivialToPrimitiveCopyCUnion()))
     checkNonTrivialCUnion(E->getType(), E->getExprLoc(),
-                          Sema::NTCUC_LValueToRValueVolatile,
-                          NTCUK_Destruct|NTCUK_Copy);
+                          NonTrivialCUnionContext::LValueToRValueVolatile,
+                          NTCUK_Destruct | NTCUK_Copy);
 
   // C++2a [basic.def.odr]p4:
   //   [...] an expression of non-volatile-qualified non-class type to which
@@ -20080,7 +20082,7 @@ static void DoMarkBindingDeclReferenced(Sema &SemaRef, SourceLocation Loc,
   OdrUseContext OdrUse = isOdrUseContext(SemaRef);
   if (OdrUse == OdrUseContext::Used) {
     QualType CaptureType, DeclRefType;
-    SemaRef.tryCaptureVariable(BD, Loc, Sema::TryCapture_Implicit,
+    SemaRef.tryCaptureVariable(BD, Loc, TryCaptureKind::Implicit,
                                /*EllipsisLoc*/ SourceLocation(),
                                /*BuildAndDiagnose*/ true, CaptureType,
                                DeclRefType,
