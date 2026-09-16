@@ -161,6 +161,10 @@ Makes programs 10x faster by doing Special New Thing.
   The `llvm.vp.merge` will be folded away but the `%evl` will be propagated to
   the add instruction.
 
+* Introduced the generic `!atomic.ignore.denormal.mode` metadata for
+  floating-point `atomicrmw` instructions, generalizing the previously
+  AMDGPU-specific `!amdgpu.ignore.denormal.mode`.
+
 ### Changes to LLVM infrastructure
 
 * Removed `TargetOptions::FloatABIType`. The soft float ABI should be
@@ -250,6 +254,7 @@ Makes programs 10x faster by doing Special New Thing.
 * Removed support for the `Ventana Conditional Operations` extension.
 * Added support for `tail symbol, rt` form that takes an address (materialisation)
   register, that is used when software guarded branch is needed.
+* Added the experimental `RVA23P1S64` and `RVB23P1S64` profiles.
 
 ### Changes to the WebAssembly Backend
 
